@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+.env
+
+# Media
+songs/
+*.mp4
+*.webm
+*.mp3
+*.m4a
+
+# Bot Specific
+cookies.txt*
+downloaded_songs.txt
+ffmpeg*.exe
+ffprobe*.exe
+yt-dlp.exe
+audioprocessor.exe
+
+# OS
+Thumbs.db
+Desktop.ini
