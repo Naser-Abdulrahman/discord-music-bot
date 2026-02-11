@@ -1,0 +1,7 @@
+discord.py
+yt-dlp
+spotipy
+PyNaCl
+python-dotenv
+pytest
+pytest-asyncio
