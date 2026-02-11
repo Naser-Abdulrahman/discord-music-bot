@@ -2,7 +2,7 @@ import discord
 from discord.ui import View, Button
 import asyncio
 from state import song_queue
-from audio import YTDLSource, play_next
+from audio import YTDLSource, start_playing
 
 class SongSelectionView(View):
     def __init__(self, ctx, results, per_page=5):
@@ -65,7 +65,7 @@ class SongSelectionView(View):
                 # But play_next pops from queue.
                 # If we just appended, play_next will pop it.
                 
-                play_next(self.ctx)
+                await start_playing(self.ctx)
                 
              except Exception as e:
                  await interaction.followup.send(f"Error starting playback: {e}", ephemeral=True)

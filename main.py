@@ -3,7 +3,7 @@ from discord.ext import commands
 import asyncio
 from config import TOKEN
 from state import song_queue
-from audio import YTDLSource, play_next
+from audio import YTDLSource, start_playing
 from utils import extract_playlist_videos, find_explicit_url, search_with_ytdlp
 from ui import SongSelectionView
 
@@ -96,7 +96,7 @@ async def play(ctx, *, query=None):
     if not voice_client.is_playing():
         try:
              # Trigger playback via shared logic
-             play_next(ctx)
+             await start_playing(ctx)
         except Exception as e:
             await ctx.send(f"Error starting playback: {e}")
 
@@ -279,7 +279,7 @@ async def playspotify(ctx, url):
              await ctx.author.voice.channel.connect()
     
     if ctx.voice_client and not ctx.voice_client.is_playing():
-        play_next(ctx)
+        await start_playing(ctx)
 
 if __name__ == "__main__":
     if TOKEN:

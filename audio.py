@@ -102,6 +102,27 @@ class YTDLSource(discord.PCMVolumeTransformer):
             options='-vn -nostdin'
         ), data={'title': os.path.basename(filename), 'url': filename})
 
+async def start_playing(ctx):
+    """Async starter for playback from commands to avoid blocking commands loop"""
+    if len(song_queue) > 0:
+        next_url = song_queue.pop(0)
+        try:
+            player = await YTDLSource.from_url(next_url, loop=ctx.bot.loop, stream=False)
+            
+            def after_playing(error):
+                if error:
+                    print(f"Player error: {error}")
+                play_next(ctx)
+                
+            ctx.voice_client.play(player, after=after_playing)
+            await ctx.send(f'Now playing: **{player.title}**')
+        except Exception as e:
+            print(f"Error playing next song: {e}")
+            await ctx.send(f"Error playing song, skipping to next... ({e})")
+            await start_playing(ctx)
+    else:
+        await ctx.send("The queue is empty.")
+
 def play_next(ctx):
     if len(song_queue) > 0:
         next_url = song_queue.pop(0)
