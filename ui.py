@@ -48,7 +48,7 @@ class SongSelectionView(View):
         voice_client = self.ctx.voice_client
         
         if voice_client.is_playing():
-            song_queue.append(url)
+            song_queue.append({"url": url, "user_id": interaction.user.id})
             await interaction.followup.send(f"Added to queue: **{title}**", ephemeral=True)
         else:
              await interaction.followup.send(f"Playing **{title}**...", ephemeral=True)
@@ -60,7 +60,7 @@ class SongSelectionView(View):
                 # We can reuse play_next logic by pushing to queue and calling play_next?
                 # Yes, but strictly speaking SongSelectionView logic in main.py was slightly explicitly duplicated.
                 # Let's standardize:
-                song_queue.append(url)
+                song_queue.append({"url": url, "user_id": interaction.user.id})
                 # Now trigger play_next if not playing
                 # But play_next pops from queue.
                 # If we just appended, play_next will pop it.

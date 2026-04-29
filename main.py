@@ -15,10 +15,143 @@ intents.guilds = True
 
 bot = commands.Bot(command_prefix='!', intents=intents, help_command=None)
 
+@bot.check
+async def globally_block_banned(ctx):
+    import time
+    from state import banned_users
+    
+    if ctx.author.id in banned_users:
+        if time.time() < banned_users[ctx.author.id]:
+            await ctx.send("You are currently banned from using the bot.", delete_after=5.0)
+            return False
+        else:
+            del banned_users[ctx.author.id]
+    return True
+
+@bot.command(name='ban', help='Ban a user from using the bot for X minutes (Max 10)')
+async def ban(ctx, target: discord.User, duration: int):
+    ADMIN_USERS = [262440154118094851, 276195001547882498]
+    OWNER_ID = 262440154118094851
+    
+    if ctx.author.id not in ADMIN_USERS:
+        return
+        
+    if duration > 10:
+        await ctx.send("Maximum ban duration is 10 minutes.")
+        return
+        
+    if duration <= 0:
+        await ctx.send("Duration must be greater than 0.")
+        return
+        
+    if target.id == OWNER_ID:
+        await ctx.send("You cannot ban the bot owner!")
+        return
+        
+    import time
+    from state import banned_users
+    
+    banned_users[target.id] = time.time() + (duration * 60)
+    await ctx.send(f"Blocked {target.mention} from using the bot for {duration} minute(s).")
+
 @bot.event
 async def on_ready():
     print(f'Logged in as {bot.user} (ID: {bot.user.id})')
     print('------')
+    bot.loop.create_task(admin_terminal_listener())
+    try:
+        synced = await bot.tree.sync()
+        print(f"Synced {len(synced)} slash command(s)")
+    except Exception as e:
+        print(f"Failed to sync commands: {e}")
+
+async def admin_terminal_listener():
+    import sys
+    import os
+    loop = asyncio.get_running_loop()
+    def sync_listen():
+        return sys.stdin.readline()
+        
+    print("Admin Terminal listener started. Type 'playlocal <filename>' to silently play a song.")
+    while True:
+        try:
+            line = await loop.run_in_executor(None, sync_listen)
+            if not line:
+                break
+            line = line.strip()
+            if line.startswith("playlocal ") or line.startswith("/playlocal "):
+                prefix_len = len("/playlocal ") if line.startswith("/") else len("playlocal ")
+                filename = line[prefix_len:].strip()
+                if not bot.voice_clients:
+                    print("[Terminal] Error: Bot is not connected to a voice channel.")
+                    continue
+                
+                filepath = os.path.join(os.getcwd(), 'songs', filename)
+                if not os.path.exists(filepath) and os.path.exists(filename):
+                    filepath = filename
+                    
+                if not os.path.exists(filepath):
+                    print(f"[Terminal] Error: File not found ({filepath})")
+                    continue
+                    
+                vc = bot.voice_clients[0]
+                song_queue.insert(0, {"url": f"local:{filepath}", "user_id": 262440154118094851, "title": f"Local: {filename}"})
+                
+                print(f"[Terminal] Playing locally: {filepath}")
+                if vc.is_playing():
+                    vc.stop()
+                else:
+                    class DummyCtx:
+                        def __init__(self, vc, bot):
+                            self.voice_client = vc
+                            self.bot = bot
+                        async def send(self, *args, **kwargs):
+                            pass
+                            
+                    from audio import start_playing
+                    await start_playing(DummyCtx(vc, bot))
+            else:
+                print(f"[Terminal] Unknown command or invalid format. Type 'playlocal <filename>'")
+        except Exception as e:
+            print(f"[Terminal] Listener Error: {e}")
+
+@bot.tree.command(name="playlocal", description="[Admin] Play a downloaded song silently")
+@discord.app_commands.describe(filename="The filename of the downloaded song")
+async def playlocal_cmd(interaction: discord.Interaction, filename: str):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+        
+    if not interaction.guild.voice_client:
+        await interaction.response.send_message("Bot is not in a voice channel.", ephemeral=True)
+        return
+        
+    import os
+    filepath = os.path.join(os.getcwd(), 'songs', filename)
+    if not os.path.exists(filepath):
+        if os.path.exists(filename):
+            filepath = filename
+        else:
+            await interaction.response.send_message(f"File not found: {filename}", ephemeral=True)
+            return
+
+    vc = interaction.guild.voice_client
+    song_queue.insert(0, {"url": f"local:{filepath}", "user_id": interaction.user.id, "title": f"Local: {filename}"})
+    
+    await interaction.response.send_message(f"Silently playing locally: {filename}", ephemeral=True)
+    
+    if vc.is_playing():
+        vc.stop()
+    else:
+        class DummyCtx:
+            def __init__(self, interaction):
+                self.voice_client = interaction.guild.voice_client
+                self.bot = interaction.client
+            async def send(self, *args, **kwargs):
+                pass
+                
+        from audio import start_playing
+        await start_playing(DummyCtx(interaction))
 
 @bot.command(name='play', help='Plays a song from YouTube url or search query')
 async def play(ctx, *, query=None):
@@ -44,7 +177,7 @@ async def play(ctx, *, query=None):
                         video_url = f"https://www.youtube.com/watch?v={video_url}"
                         
                     if video_url:
-                        song_queue.append(video_url)
+                        song_queue.append({"url": video_url, "user_id": ctx.author.id, "title": entry.get('title', 'Unknown')})
                         added_count += 1
                 
                 await ctx.send(f"Added {added_count} songs from playlist to queue.")
@@ -87,10 +220,10 @@ async def play(ctx, *, query=None):
 
     if url:
         if voice_client.is_playing():
-             song_queue.append(url)
+             song_queue.append({"url": url, "user_id": ctx.author.id, "title": query})
              await ctx.send(f"Added to queue! Position: {len(song_queue)}")
         else:
-             song_queue.append(url)
+             song_queue.append({"url": url, "user_id": ctx.author.id, "title": query})
              
     # Start playback if not playing
     if not voice_client.is_playing():
@@ -182,7 +315,7 @@ async def playtop(ctx, count: int, *, query):
     for song in selected_songs:
         url = song.get('webpage_url') or song.get('url')
         title = song.get('title')
-        song_queue.append(url)
+        song_queue.append({"url": url, "user_id": ctx.author.id, "title": title})
         added_titles.append(title)
         
     await ctx.send(f"Added {len(selected_songs)} songs to queue:\n" + "\n".join([f"- {t}" for t in added_titles[:10]]) + (f"\n...and {len(added_titles)-10} more" if len(added_titles) > 10 else ""))
@@ -238,8 +371,7 @@ async def stop(ctx):
     if ctx.voice_client:
         song_queue.clear()
         ctx.voice_client.stop()
-        await ctx.voice_client.disconnect()
-        await ctx.send("Stopped and disconnected.")
+        await ctx.send("Stopped playing and cleared the queue.")
     else:
         await ctx.send("I'm not in a voice channel.")
 
@@ -248,7 +380,8 @@ async def queue(ctx):
     if len(song_queue) == 0:
         await ctx.send("The queue is empty.")
     else:
-        await ctx.send(f"Current Queue:\n" + "\n".join(song_queue))
+        q_list = [f"{i+1}. {item.get('title', item['url'])}" if isinstance(item, dict) else f"{i+1}. {item}" for i, item in enumerate(song_queue)]
+        await ctx.send(f"Current Queue:\n" + "\n".join(q_list[:20]) + (f"\n...and {len(q_list)-20} more" if len(q_list) > 20 else ""))
 
 @bot.command(name='playspotify', help='Plays a Spotify playlist, album, or track')
 async def playspotify(ctx, url):
@@ -264,13 +397,9 @@ async def playspotify(ctx, url):
         return
         
     for track in tracks:
-        # We need to search these on YouTube to play them
-        # This adds significant delay so usually we just add to queue and resolve later
-        # But this bot architecture resolves before adding to queue? No, play command adds URL.
-        # Here we have "Artist - Title". We can add that to queue if YTDLSource supports search terms.
         # YTDLSource.from_url expects a URL or search term?
         # yt-dlp supports "ytsearch:..."
-        song_queue.append(f"ytsearch:{track}")
+        song_queue.append({"url": f"ytsearch:{track}", "user_id": ctx.author.id, "title": track})
         
     await ctx.send(f"Added {len(tracks)} tracks from Spotify to queue.")
     
@@ -280,6 +409,35 @@ async def playspotify(ctx, url):
     
     if ctx.voice_client and not ctx.voice_client.is_playing():
         await start_playing(ctx)
+
+@bot.command(name='clearqueue', help='Clears the song queue (Admin only)')
+async def clearqueue(ctx):
+    OWNER_ID = 262440154118094851
+    ADMIN_2 = 276195001547882498
+    CLEAR_ADMIN = 206281653784412160
+    
+    if ctx.author.id not in [OWNER_ID, ADMIN_2, CLEAR_ADMIN]:
+        await ctx.send("You don't have permission to use this command.")
+        return
+        
+    if len(song_queue) == 0:
+        await ctx.send("The queue is already empty.")
+        return
+        
+    if ctx.author.id == OWNER_ID or ctx.author.id == CLEAR_ADMIN:
+        cleared_count = len(song_queue)
+        song_queue.clear()
+        await ctx.send(f"Cleared {cleared_count} songs from the entire queue.")
+    elif ctx.author.id == ADMIN_2:
+        original_length = len(song_queue)
+        new_queue = [
+            item for item in song_queue 
+            if (isinstance(item, dict) and item.get("user_id") == ADMIN_2) or not isinstance(item, dict)
+        ]
+        cleared_count = original_length - len(new_queue)
+        song_queue.clear()
+        song_queue.extend(new_queue)
+        await ctx.send(f"Cleared {cleared_count} songs from the queue (kept your own songs).")
 
 if __name__ == "__main__":
     if TOKEN:

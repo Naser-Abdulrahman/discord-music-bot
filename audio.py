@@ -4,6 +4,7 @@ import yt_dlp
 import os
 import subprocess
 import glob
+from utils import search_with_ytdlp
 from config import ytdl_format_options
 from state import song_queue
 
@@ -20,6 +21,28 @@ class YTDLSource(discord.PCMVolumeTransformer):
         
         if stream:
             stream = False
+            
+        if url.startswith("local:"):
+            filepath = url[len("local:"):]
+            return cls(discord.FFmpegPCMAudio(
+                filepath,
+                executable='audioprocessor.exe',
+                options='-vn -nostdin'
+            ), data={'title': os.path.basename(filepath), 'url': filepath})
+            
+        if url.startswith("ytsearch:"):
+            search_query = url[len("ytsearch:"):]
+            print(f"Resolving ytsearch query: {search_query}")
+            try:
+                results = await loop.run_in_executor(None, lambda: search_with_ytdlp(search_query, n=1))
+                if results and results[0].get('webpage_url'):
+                    url = results[0]['webpage_url']
+                    print(f"Resolved to: {url}")
+                else:
+                    raise Exception(f"No results found for search: {search_query}")
+            except Exception as e:
+                print(f"Error resolving ytsearch: {e}")
+                raise e
         
         # Download logic embedded here for now
         output_template = "%(extractor)s-%(id)s-%(title)s.%(ext)s"
@@ -51,7 +74,7 @@ class YTDLSource(discord.PCMVolumeTransformer):
         
         def download_with_ytdlp():
             try:
-                cmd = f'yt-dlp.exe -f "18" --no-playlist "{url}"'
+                cmd = f'python -m yt_dlp -f "18" --no-playlist "{url}"'
                 result = subprocess.run(
                     cmd,
                     capture_output=True,
@@ -62,7 +85,9 @@ class YTDLSource(discord.PCMVolumeTransformer):
                 )
                 
                 if result.returncode != 0:
-                    raise Exception(f"yt-dlp.exe failed: {result.stderr}")
+                    error_msg = f"yt-dlp failed (Code {result.returncode}):\nSTDERR: {result.stderr}\nSTDOUT: {result.stdout}"
+                    print(error_msg)
+                    raise Exception(error_msg)
                 
                 import re
                 import time
@@ -105,7 +130,8 @@ class YTDLSource(discord.PCMVolumeTransformer):
 async def start_playing(ctx):
     """Async starter for playback from commands to avoid blocking commands loop"""
     if len(song_queue) > 0:
-        next_url = song_queue.pop(0)
+        next_item = song_queue.pop(0)
+        next_url = next_item['url'] if isinstance(next_item, dict) else next_item
         try:
             player = await YTDLSource.from_url(next_url, loop=ctx.bot.loop, stream=False)
             
@@ -125,7 +151,8 @@ async def start_playing(ctx):
 
 def play_next(ctx):
     if len(song_queue) > 0:
-        next_url = song_queue.pop(0)
+        next_item = song_queue.pop(0)
+        next_url = next_item['url'] if isinstance(next_item, dict) else next_item
         
         # We access the bot loop via ctx.bot.loop since play_next isn't async
         loop = ctx.bot.loop
