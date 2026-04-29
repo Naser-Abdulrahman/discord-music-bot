@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from logging.handlers import RotatingFileHandler
 import os
 import sys
 import time
@@ -12,6 +13,24 @@ from config import TOKEN
 from state import banned_users, song_queue
 from ui import SongSelectionView
 from utils import extract_playlist_videos, find_explicit_url, get_spotify_tracks, search_with_ytdlp
+
+LOG_DIR = os.path.join(os.getcwd(), "logs")
+os.makedirs(LOG_DIR, exist_ok=True)
+LOG_FILE = os.path.join(LOG_DIR, "bot.log")
+
+root_logger = logging.getLogger()
+if not root_logger.handlers:
+    root_logger.setLevel(logging.INFO)
+
+    file_handler = RotatingFileHandler(LOG_FILE, maxBytes=1_000_000, backupCount=5, encoding="utf-8")
+    stream_handler = logging.StreamHandler()
+
+    formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+    file_handler.setFormatter(formatter)
+    stream_handler.setFormatter(formatter)
+
+    root_logger.addHandler(file_handler)
+    root_logger.addHandler(stream_handler)
 
 logger = logging.getLogger(__name__)
 
